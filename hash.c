@@ -3911,11 +3911,24 @@ rb_hash_to_h(VALUE hash)
     return hash;
 }
 
+struct keys_args {
+    VALUE ary;
+    int i;
+};
+
 static int
-keys_i(VALUE key, VALUE value, VALUE ary)
+keys_i(VALUE key, VALUE value, VALUE kargs)
 {
-    rb_ary_push(ary, key);
-    return ST_CONTINUE;
+    struct keys_args *p =(void *)kargs;
+    VALUE result = p->ary;
+
+    rb_ary_push(result, key);
+    if (++p->i >= RARRAY_LEN(result)) {
+        return ST_STOP;
+    }
+    else {
+        return ST_CONTINUE;
+    }
 }
 
 /*
@@ -3928,10 +3941,16 @@ keys_i(VALUE key, VALUE value, VALUE ary)
  */
 
 MJIT_FUNC_EXPORTED VALUE
-rb_hash_keys(VALUE hash)
+rb_hash_keys(int argc, VALUE *argv, VALUE hash)
 {
     st_index_t size = RHASH_SIZE(hash);
-    VALUE keys =  rb_ary_new_capa(size);
+    VALUE keys = rb_ary_new_capa(size);
+
+    rb_check_arity(argc, 0, 1);
+    if (argc > 0) {
+        unsigned int req_size = NUM2UINT(argv[0]);
+        if (req_size < size) size = req_size;
+    }
 
     if (size == 0) return keys;
 
@@ -3949,7 +3968,8 @@ rb_hash_keys(VALUE hash)
 	rb_ary_set_len(keys, size);
     }
     else {
-	rb_hash_foreach(hash, keys_i, keys);
+        struct keys_args kargs = {keys, 0};
+	rb_hash_foreach(hash, keys_i, (VALUE)&kargs);
     }
 
     return keys;
@@ -7575,8 +7595,8 @@ Init_Hash(void)
     rb_define_method(rb_cHash, "transform_values", rb_hash_transform_values, 0);
     rb_define_method(rb_cHash, "transform_values!", rb_hash_transform_values_bang, 0);
 
-    rb_define_method(rb_cHash, "keys", rb_hash_keys, 0);
     rb_define_method(rb_cHash, "values", rb_hash_values, 0);
+    rb_define_method(rb_cHash, "keys", rb_hash_keys, -1);
     rb_define_method(rb_cHash, "values_at", rb_hash_values_at, -1);
     rb_define_method(rb_cHash, "fetch_values", rb_hash_fetch_values, -1);
 

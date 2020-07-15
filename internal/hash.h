@@ -103,7 +103,7 @@ MJIT_SYMBOL_EXPORT_BEGIN
 VALUE rb_hash_new_with_size(st_index_t size);
 VALUE rb_hash_resurrect(VALUE hash);
 int rb_hash_stlike_lookup(VALUE hash, st_data_t key, st_data_t *pval);
-VALUE rb_hash_keys(VALUE hash);
+VALUE rb_hash_keys(int argc, VALUE *argv, VALUE hash);
 VALUE rb_hash_has_key(VALUE hash, VALUE key);
 VALUE rb_hash_compare_by_id_p(VALUE hash);
 

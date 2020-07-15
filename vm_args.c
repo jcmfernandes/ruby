@@ -685,7 +685,7 @@ setup_parameters_complex(rb_execution_context_t * const ec, const rb_iseq_t * co
         args_setup_kw_rest_parameter(keyword_hash, locals + iseq->body->param.keyword->rest_start, kw_flag);
     }
     else if (!NIL_P(keyword_hash) && RHASH_SIZE(keyword_hash) > 0 && arg_setup_type == arg_setup_method) {
-	argument_kw_error(ec, iseq, "unknown", rb_hash_keys(keyword_hash));
+	argument_kw_error(ec, iseq, "unknown", rb_hash_keys(0, 0, keyword_hash));
     }
 
     if (iseq->body->param.flags.has_block) {

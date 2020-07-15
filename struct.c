@@ -397,7 +397,7 @@ struct_make_members_list(va_list ar)
 	    rb_raise(rb_eArgError, "duplicate member: %s", mem);
 	}
     }
-    ary = rb_hash_keys(list);
+    ary = rb_hash_keys(0, 0, list);
     st_clear(tbl);
     RBASIC_CLEAR_CLASS(ary);
     OBJ_FREEZE_RAW(ary);
@@ -593,7 +593,7 @@ rb_struct_s_def(int argc, VALUE *argv, VALUE klass)
 	    rb_raise(rb_eArgError, "duplicate member: %"PRIsVALUE, mem);
 	}
     }
-    rest = rb_hash_keys(rest);
+    rest = rb_hash_keys(0, 0, rest);
     st_clear(tbl);
     RBASIC_CLEAR_CLASS(rest);
     OBJ_FREEZE_RAW(rest);

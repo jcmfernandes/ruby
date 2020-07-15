@@ -2237,7 +2237,7 @@ static VALUE
 local_var_list_finish(struct local_var_list *vars)
 {
     /* TODO: not to depend on the order of st_table */
-    VALUE ary = rb_hash_keys(vars->tbl);
+    VALUE ary = rb_hash_keys(0, 0, vars->tbl);
     rb_hash_clear(vars->tbl);
     vars->tbl = 0;
     return ary;

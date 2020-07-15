@@ -639,6 +639,18 @@ class TestHash < Test::Unit::TestCase
     @h.each { |k, v| expected << k }
     assert_equal([], keys - expected)
     assert_equal([], expected - keys)
+
+    keys = @h.keys(0)
+    assert_equal([], keys)
+
+    keys = @h.keys(1)
+    assert_equal([1], keys)
+
+    keys = @h.keys(@h.length + 1)
+    expected = []
+    @h.each { |k, v| expected << k }
+    assert_equal([], keys - expected)
+    assert_equal([], expected - keys)
   end
 
   def test_length

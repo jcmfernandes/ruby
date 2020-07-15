@@ -1992,7 +1992,7 @@ unknown_keyword_error(VALUE hash, const ID *table, int keywords)
 	st_data_t key = ID2SYM(table[i]);
         rb_hash_stlike_delete(hash, &key, NULL);
     }
-    rb_keyword_error("unknown", rb_hash_keys(hash));
+    rb_keyword_error("unknown", rb_hash_keys(0, 0, hash));
 }
 
 
