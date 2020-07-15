@@ -931,6 +931,18 @@ class TestHash < Test::Unit::TestCase
     @h.each { |k, v| expected << v }
     assert_equal([], vals - expected)
     assert_equal([], expected - vals)
+
+    vals = @h.values(0)
+    assert_equal([], vals)
+
+    vals = @h.values(1)
+    assert_equal([1], vals)
+
+    vals = @h.values(@h.length + 1)
+    expected = []
+    @h.each { |k, v| expected << v }
+    assert_equal([], vals - expected)
+    assert_equal([], expected - vals)
   end
 
   def test_initialize_wrong_arguments

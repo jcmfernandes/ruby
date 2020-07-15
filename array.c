@@ -6126,7 +6126,7 @@ rb_ary_or(VALUE ary1, VALUE ary2)
     hash = ary_make_hash(ary1);
     rb_ary_union_hash(hash, ary2);
 
-    ary3 = rb_hash_values(hash);
+    ary3 = rb_hash_values(0, 0, hash);
     ary_recycle_hash(hash);
     return ary3;
 }
@@ -6172,7 +6172,7 @@ rb_ary_union_multi(int argc, VALUE *argv, VALUE ary)
     hash = ary_make_hash(ary);
     for (i = 0; i < argc; i++) rb_ary_union_hash(hash, argv[i]);
 
-    ary_union = rb_hash_values(hash);
+    ary_union = rb_hash_values(0, 0, hash);
     ary_recycle_hash(hash);
     return ary_union;
 }
@@ -6400,11 +6400,11 @@ rb_ary_uniq(VALUE ary)
     }
     else if (rb_block_given_p()) {
 	hash = ary_make_hash_by(ary);
-	uniq = rb_hash_values(hash);
+	uniq = rb_hash_values(0, 0, hash);
     }
     else {
 	hash = ary_make_hash(ary);
-	uniq = rb_hash_values(hash);
+	uniq = rb_hash_values(0, 0, hash);
     }
     RBASIC_SET_CLASS(uniq, rb_obj_class(ary));
     if (hash) {

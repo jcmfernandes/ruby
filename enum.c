@@ -4154,7 +4154,7 @@ enum_uniq(VALUE obj)
 
     hash = rb_obj_hide(rb_hash_new());
     rb_block_call(obj, id_each, 0, 0, func, hash);
-    ret = rb_hash_values(hash);
+    ret = rb_hash_values(0, 0, hash);
     rb_hash_clear(hash);
     return ret;
 }
