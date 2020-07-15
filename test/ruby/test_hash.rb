@@ -653,6 +653,14 @@ class TestHash < Test::Unit::TestCase
     assert_equal([], expected - keys)
   end
 
+  def test_first_key
+    h1 = @cls[]
+    h2 = @cls[a: 1, b: 2, c: 3]
+
+    assert_equal(h1.first_key, nil)
+    assert_equal(h2.first_key, :a)
+  end
+
   def test_length
     assert_equal(0, @cls[].length)
     assert_equal(7, @h.length)
@@ -943,6 +951,14 @@ class TestHash < Test::Unit::TestCase
     @h.each { |k, v| expected << v }
     assert_equal([], vals - expected)
     assert_equal([], expected - vals)
+  end
+
+  def test_first_value
+    h1 = @cls[]
+    h2 = @cls[a: 1, b: 2, c: 3]
+
+    assert_equal(h1.first_value, nil)
+    assert_equal(h2.first_value, 1)
   end
 
   def test_initialize_wrong_arguments

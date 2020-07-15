@@ -2289,6 +2289,54 @@ rb_hash_fetch(VALUE hash, VALUE key)
 
 /*
  *  call-seq:
+ *     hash.first_key       ->  obj or nil
+ *
+ *  Returns the first key of the hash.
+ *  If the hash is empty, returns <code>nil</code>.
+ *
+ *    h = { "a" => 100, "b" => 200, "c" => 300, "d" => 400 }
+ *    h.first_key #=> "a"
+ *    {}.first_key #=> nil
+ *
+ */
+
+static VALUE
+rb_hash_first_key(VALUE hash)
+{
+    VALUE n;
+
+    if (RHASH_TABLE_EMPTY_P(hash)) return Qnil;
+
+    n = INT2NUM(1);
+    return RARRAY_AREF(rb_hash_keys(1, &n, hash), 0);
+}
+
+/*
+ *  call-seq:
+ *     hash.first_value       ->  obj or nil
+ *
+ *  Returns the first value of the hash.
+ *  If the hash is empty, returns <code>nil</code>.
+ *
+ *    h = { "a" => 100, "b" => 200, "c" => 300, "d" => 400 }
+ *    h.first_value #=> 100
+ *    {}.first_value #=> nil
+ *
+ */
+
+static VALUE
+rb_hash_first_value(VALUE hash)
+{
+    VALUE n;
+
+    if (RHASH_TABLE_EMPTY_P(hash)) return Qnil;
+
+    n = INT2NUM(1);
+    return RARRAY_AREF(rb_hash_values(1, &n, hash), 0);
+}
+
+/*
+ *  call-seq:
  *    hash.default -> value
  *    hash.default(key) -> value
  *
@@ -7615,7 +7663,9 @@ Init_Hash(void)
     rb_define_method(rb_cHash, "transform_values!", rb_hash_transform_values_bang, 0);
 
     rb_define_method(rb_cHash, "keys", rb_hash_keys, -1);
+    rb_define_method(rb_cHash, "first_key", rb_hash_first_key, 0);
     rb_define_method(rb_cHash, "values", rb_hash_values, -1);
+    rb_define_method(rb_cHash, "first_value", rb_hash_first_value, 0);
     rb_define_method(rb_cHash, "values_at", rb_hash_values_at, -1);
     rb_define_method(rb_cHash, "fetch_values", rb_hash_fetch_values, -1);
 

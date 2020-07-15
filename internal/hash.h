@@ -73,6 +73,8 @@ st_table *rb_init_identtable(void);
 VALUE rb_to_hash_type(VALUE obj);
 VALUE rb_hash_key_str(VALUE);
 VALUE rb_hash_values(int argc, VALUE *argv, VALUE hash);
+VALUE rb_hash_first_key(VALUE hash);
+VALUE rb_hash_first_value(VALUE hash);
 VALUE rb_hash_rehash(VALUE hash);
 int rb_hash_add_new_element(VALUE hash, VALUE key, VALUE val);
 VALUE rb_hash_set_pair(VALUE hash, VALUE pair);
