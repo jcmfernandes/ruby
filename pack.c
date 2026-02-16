@@ -26,6 +26,7 @@
 #include "ruby/util.h"
 
 #include "builtin.h"
+#include "pack_base64.h"
 
 /*
  * It is intentional that the condition for natstr is HAVE_TRUE_LONG_LONG
@@ -236,7 +237,9 @@ pack_modifiers(const char *p, char type, int *natint, int *explicit_endian)
            case '<':
            case '>':
              if (!strchr(endstr, type)) {
-                 rb_raise(rb_eArgError, "'%c' allowed only after types %s", *p, endstr);
+                 if (type != 'm' || *p != '>') {
+                     rb_raise(rb_eArgError, "'%c' allowed only after types %s", *p, endstr);
+                 }
              }
              if (*explicit_endian) {
                  rb_raise(rb_eRangeError, "Can't use both '<' and '>'");
@@ -310,6 +313,9 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
         else {
             len = 1;
         }
+
+        /* Allow modifiers after count (e.g. m0>) */
+        p = pack_modifiers(p, type, &natint, &explicit_endian);
 
         switch (type) {
           case 'U':
@@ -723,24 +729,39 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
             ptr = RSTRING_PTR(from);
             plen = RSTRING_LEN(from);
 
-            if (len == 0 && type == 'm') {
-                encodes(res, ptr, plen, type, 0);
-                ptr += plen;
+            if (type == 'm') {
+                if (len == 0) {
+                    /* Strict mode (m0, m0>) — SIMD path */
+                    long outsize = (plen + 2) / 3 * 4;
+                    rb_str_modify_expand(res, outsize);
+                    size_t enclen = (explicit_endian == '>')
+                        ? pack_base64url_encode(ptr, (size_t)plen,
+                                        RSTRING_PTR(res) + RSTRING_LEN(res))
+                        : pack_base64_encode(ptr, (size_t)plen,
+                                        RSTRING_PTR(res) + RSTRING_LEN(res));
+                    rb_str_set_len(res, RSTRING_LEN(res) + (long)enclen);
+                    break;
+                }
+                if (explicit_endian) {
+                    rb_raise(rb_eArgError, "'>' is only allowed with count 0 for 'm'");
+                }
+                /* RFC 2045 — scalar path with line wrapping */
+                if (len <= 2) len = 45;
+                else len = len / 3 * 3;
+                long outsize = ((plen + 2) / 3 * 4) + (plen / len + 2);
+                rb_str_modify_expand(res, outsize);
+                size_t enclen = pack_base64_encode_rfc2045(
+                    ptr, (size_t)plen,
+                    RSTRING_PTR(res) + RSTRING_LEN(res), (int)len);
+                rb_str_set_len(res, RSTRING_LEN(res) + (long)enclen);
                 break;
             }
-            if (len <= 2)
-                len = 45;
-            else if (len > 63 && type == 'u')
-                len = 63;
-            else
-                len = len / 3 * 3;
-            while (plen > 0) {
-                long todo;
 
-                if (plen > len)
-                    todo = len;
-                else
-                    todo = plen;
+            /* type == 'u': uuencode */
+            if (len <= 2) len = 45;
+            else if (len > 63) len = 63;
+            while (plen > 0) {
+                long todo = (plen > len) ? len : plen;
                 encodes(res, ptr, todo, type, 1);
                 plen -= todo;
                 ptr += todo;
@@ -1064,6 +1085,9 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
         else {
             len = (type != '@');
         }
+
+        /* Allow modifiers after count (e.g. m0>) */
+        p = pack_modifiers(p, type, &natint, &explicit_endian);
 
         switch (type) {
           case '%':
@@ -1441,77 +1465,26 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
             {
                 VALUE buf = rb_str_new(0, (send - s + 3)*3/4); /* +3 is for skipping paddings */
                 char *ptr = RSTRING_PTR(buf);
-                int a = -1,b = -1,c = 0,d = 0;
-                static signed char b64_xtable[256];
 
-                if (b64_xtable['/'] <= 0) {
-                    int i;
-
-                    for (i = 0; i < 256; i++) {
-                        b64_xtable[i] = -1;
-                    }
-                    for (i = 0; i < 64; i++) {
-                        b64_xtable[(unsigned char)b64_table[i]] = (char)i;
-                    }
-                }
                 if (len == 0) {
-                    while (s < send) {
-                        a = b = c = d = -1;
-                        a = b64_xtable[(unsigned char)*s++];
-                        if (s >= send || a == -1) rb_raise(rb_eArgError, "invalid base64");
-                        b = b64_xtable[(unsigned char)*s++];
-                        if (s >= send || b == -1) rb_raise(rb_eArgError, "invalid base64");
-                        if (*s == '=') {
-                            if (s + 2 == send && *(s + 1) == '=') break;
-                            rb_raise(rb_eArgError, "invalid base64");
-                        }
-                        c = b64_xtable[(unsigned char)*s++];
-                        if (s >= send || c == -1) rb_raise(rb_eArgError, "invalid base64");
-                        if (s + 1 == send && *s == '=') break;
-                        d = b64_xtable[(unsigned char)*s++];
-                        if (d == -1) rb_raise(rb_eArgError, "invalid base64");
-                        *ptr++ = castchar(a << 2 | b >> 4);
-                        *ptr++ = castchar(b << 4 | c >> 2);
-                        *ptr++ = castchar(c << 6 | d);
+                    size_t declen;
+                    int ok = (explicit_endian == '>')
+                        ? pack_base64url_decode(s, (size_t)(send - s), ptr, &declen)
+                        : pack_base64_decode(s, (size_t)(send - s), ptr, &declen);
+                    if (!ok) {
+                        rb_raise(rb_eArgError, "invalid base64");
                     }
-                    if (c == -1) {
-                        *ptr++ = castchar(a << 2 | b >> 4);
-                        if (b & 0xf) rb_raise(rb_eArgError, "invalid base64");
-                    }
-                    else if (d == -1) {
-                        *ptr++ = castchar(a << 2 | b >> 4);
-                        *ptr++ = castchar(b << 4 | c >> 2);
-                        if (c & 0x3) rb_raise(rb_eArgError, "invalid base64");
-                    }
+                    ptr += declen;
+                    s = send;
                 }
                 else {
-                    while (s < send) {
-                        a = b = c = d = -1;
-                        while ((a = b64_xtable[(unsigned char)*s]) == -1 && s < send) {s++;}
-                        if (s >= send) break;
-                        s++;
-                        while ((b = b64_xtable[(unsigned char)*s]) == -1 && s < send) {s++;}
-                        if (s >= send) break;
-                        s++;
-                        while ((c = b64_xtable[(unsigned char)*s]) == -1 && s < send) {if (*s == '=') break; s++;}
-                        if (*s == '=' || s >= send) break;
-                        s++;
-                        while ((d = b64_xtable[(unsigned char)*s]) == -1 && s < send) {if (*s == '=') break; s++;}
-                        if (*s == '=' || s >= send) break;
-                        s++;
-                        *ptr++ = castchar(a << 2 | b >> 4);
-                        *ptr++ = castchar(b << 4 | c >> 2);
-                        *ptr++ = castchar(c << 6 | d);
-                        a = -1;
+                    if (explicit_endian) {
+                        rb_raise(rb_eArgError, "'>' is only allowed with count 0 for 'm'");
                     }
-                    if (a != -1 && b != -1) {
-                        if (c == -1)
-                            *ptr++ = castchar(a << 2 | b >> 4);
-                        else {
-                            *ptr++ = castchar(a << 2 | b >> 4);
-                            *ptr++ = castchar(b << 4 | c >> 2);
-                        }
-                    }
+                    /* RFC 2045 lenient decode — scalar path */
+                    size_t declen = pack_base64_decode_rfc2045(s, (size_t)(send - s), ptr);
+                    ptr += declen;
+                    s = send;
                 }
                 rb_str_set_len(buf, ptr - RSTRING_PTR(buf));
                 UNPACK_PUSH(buf);
@@ -1796,4 +1769,5 @@ void
 Init_pack(void)
 {
     id_associated = rb_make_internal_id();
+    pack_base64_init();
 }

@@ -152,6 +152,7 @@ COMMONOBJS    = \
 		numeric.$(OBJEXT) \
 		object.$(OBJEXT) \
 		pack.$(OBJEXT) \
+		pack_base64.$(OBJEXT) \
 		pathname.$(OBJEXT) \
 		parse.$(OBJEXT) \
 		parser_st.$(OBJEXT) \
