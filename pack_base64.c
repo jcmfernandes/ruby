@@ -20,51 +20,7 @@
 
 #include "internal/bits.h"
 #include "pack_base64.h"
-
-/* ======================================================================
- * Portability macros (from base64/lib/env.h)
- * ====================================================================== */
-
-/* Endian detection */
-#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
-#  if (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
-#    define BASE64_LITTLE_ENDIAN 1
-#  else
-#    define BASE64_LITTLE_ENDIAN 0
-#  endif
-#else
-#  define BASE64_LITTLE_ENDIAN 0
-#endif
-
-#ifdef __LITTLE_ENDIAN__
-#  undef  BASE64_LITTLE_ENDIAN
-#  define BASE64_LITTLE_ENDIAN 1
-#endif
-
-#ifdef __BIG_ENDIAN__
-#  undef  BASE64_LITTLE_ENDIAN
-#  define BASE64_LITTLE_ENDIAN 0
-#endif
-
-/* Endian conversion (swap32/swap64 from internal/bits.h) */
-#if BASE64_LITTLE_ENDIAN
-#  define BASE64_HTOBE32(x)  swap32(x)
-#  define BASE64_HTOBE64(x)  swap64(x)
-#else
-#  define BASE64_HTOBE32(x)  (x)
-#  define BASE64_HTOBE64(x)  (x)
-#endif
-
-/* Word size detection */
-#if defined(__x86_64__) || defined(__aarch64__) || defined(_M_X64) || defined(_M_ARM64)
-#  define BASE64_WORDSIZE 64
-#elif SIZE_MAX == UINT64_MAX
-#  define BASE64_WORDSIZE 64
-#elif SIZE_MAX == UINT32_MAX
-#  define BASE64_WORDSIZE 32
-#else
-#  define BASE64_WORDSIZE 32
-#endif
+#include "pack_generic.h"
 
 /* EOF markers */
 #define BASE64_AEOF 1
@@ -78,13 +34,6 @@
 #  define BASE64_FALLTHROUGH  __attribute__((fallthrough));
 #else
 #  define BASE64_FALLTHROUGH
-#endif
-
-/* Force inline */
-#ifdef _MSC_VER
-#  define BASE64_FORCE_INLINE  __forceinline
-#else
-#  define BASE64_FORCE_INLINE  inline __attribute__((always_inline))
 #endif
 
 /* ======================================================================
@@ -179,7 +128,7 @@ base64_table_dec_8bit_url[] =
 /* 12-bit encoding table (from table_enc_12bit.h) */
 
 static const uint16_t base64_table_enc_12bit[] = {
-#if BASE64_LITTLE_ENDIAN
+#if PACK_LITTLE_ENDIAN
 	0x4141U, 0x4241U, 0x4341U, 0x4441U, 0x4541U, 0x4641U, 0x4741U, 0x4841U,
 	0x4941U, 0x4A41U, 0x4B41U, 0x4C41U, 0x4D41U, 0x4E41U, 0x4F41U, 0x5041U,
 	0x5141U, 0x5241U, 0x5341U, 0x5441U, 0x5541U, 0x5641U, 0x5741U, 0x5841U,
@@ -1209,7 +1158,7 @@ static const uint16_t base64_table_enc_12bit[] = {
 };
 
 static const uint16_t base64_table_enc_12bit_url[] = {
-#if BASE64_LITTLE_ENDIAN
+#if PACK_LITTLE_ENDIAN
 	0x4141U, 0x4241U, 0x4341U, 0x4441U, 0x4541U, 0x4641U, 0x4741U, 0x4841U,
 	0x4941U, 0x4A41U, 0x4B41U, 0x4C41U, 0x4D41U, 0x4E41U, 0x4F41U, 0x5041U,
 	0x5141U, 0x5241U, 0x5341U, 0x5441U, 0x5541U, 0x5641U, 0x5741U, 0x5841U,
@@ -2241,7 +2190,7 @@ static const uint16_t base64_table_enc_12bit_url[] = {
 /* 32-bit decoding tables (from table_dec_32bit.h) */
 
 
-#if BASE64_LITTLE_ENDIAN
+#if PACK_LITTLE_ENDIAN
 
 
 /* SPECIAL DECODE TABLES FOR LITTLE ENDIAN (INTEL) CPUS */
@@ -2629,7 +2578,7 @@ static const uint32_t base64_table_dec_32bit_d3[256] = {
 
 #endif
 
-#if BASE64_LITTLE_ENDIAN
+#if PACK_LITTLE_ENDIAN
 
 
 /* SPECIAL DECODE TABLES FOR LITTLE ENDIAN (INTEL) CPUS */
@@ -3021,28 +2970,6 @@ static const uint32_t base64_table_dec_32bit_url_d3[256] = {
  * Generic 64-bit encoding loop (from generic/64/enc_loop.c)
  * ====================================================================== */
 
-static BASE64_FORCE_INLINE void
-enc_loop_generic_64_inner (const uint8_t **s, uint8_t **o, const uint16_t *enc_12bit)
-{
-	uint64_t src;
-
-	memcpy(&src, *s, sizeof (src));
-	src = BASE64_HTOBE64(src);
-
-	const size_t index0 = (src >> 52) & 0xFFFU;
-	const size_t index1 = (src >> 40) & 0xFFFU;
-	const size_t index2 = (src >> 28) & 0xFFFU;
-	const size_t index3 = (src >> 16) & 0xFFFU;
-
-	memcpy(*o + 0, enc_12bit + index0, 2);
-	memcpy(*o + 2, enc_12bit + index1, 2);
-	memcpy(*o + 4, enc_12bit + index2, 2);
-	memcpy(*o + 6, enc_12bit + index3, 2);
-
-	*s += 6;
-	*o += 8;
-}
-
 static inline void
 enc_loop_generic_64 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int flags)
 {
@@ -3058,32 +2985,32 @@ enc_loop_generic_64 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen,
 
 	do {
 		if (rounds >= 8) {
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
 			rounds -= 8;
 			continue;
 		}
 		if (rounds >= 4) {
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
 			rounds -= 4;
 			continue;
 		}
 		if (rounds >= 2) {
-			enc_loop_generic_64_inner(s, o, enc_12bit);
-			enc_loop_generic_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
+			pack_enc_loop_64_inner(s, o, enc_12bit);
 			rounds -= 2;
 			continue;
 		}
-		enc_loop_generic_64_inner(s, o, enc_12bit);
+		pack_enc_loop_64_inner(s, o, enc_12bit);
 		break;
 	} while (rounds > 0);
 }
@@ -3091,24 +3018,6 @@ enc_loop_generic_64 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen,
 /* ======================================================================
  * Generic 32-bit encoding loop (from generic/32/enc_loop.c)
  * ====================================================================== */
-
-static BASE64_FORCE_INLINE void
-enc_loop_generic_32_inner (const uint8_t **s, uint8_t **o, const uint16_t *enc_12bit)
-{
-	uint32_t src;
-
-	memcpy(&src, *s, sizeof (src));
-	src = BASE64_HTOBE32(src);
-
-	const size_t index0 = (src >> 20) & 0xFFFU;
-	const size_t index1 = (src >>  8) & 0xFFFU;
-
-	memcpy(*o + 0, enc_12bit + index0, 2);
-	memcpy(*o + 2, enc_12bit + index1, 2);
-
-	*s += 3;
-	*o += 4;
-}
 
 static inline void
 enc_loop_generic_32 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int flags)
@@ -3125,32 +3034,32 @@ enc_loop_generic_32 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen,
 
 	do {
 		if (rounds >= 8) {
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
 			rounds -= 8;
 			continue;
 		}
 		if (rounds >= 4) {
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
 			rounds -= 4;
 			continue;
 		}
 		if (rounds >= 2) {
-			enc_loop_generic_32_inner(s, o, enc_12bit);
-			enc_loop_generic_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
+			pack_enc_loop_32_inner(s, o, enc_12bit);
 			rounds -= 2;
 			continue;
 		}
-		enc_loop_generic_32_inner(s, o, enc_12bit);
+		pack_enc_loop_32_inner(s, o, enc_12bit);
 		break;
 	} while (rounds > 0);
 }
@@ -3159,32 +3068,14 @@ enc_loop_generic_32 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen,
  * Generic 32-bit decoding loop (from generic/32/dec_loop.c)
  * ====================================================================== */
 
-static BASE64_FORCE_INLINE int
+static PACK_FORCE_INLINE int
 dec_loop_generic_32_inner (const uint8_t **s, uint8_t **o, size_t *rounds,
 	const uint32_t *d0, const uint32_t *d1,
 	const uint32_t *d2, const uint32_t *d3)
 {
-	const uint32_t str
-		= d0[(*s)[0]]
-		| d1[(*s)[1]]
-		| d2[(*s)[2]]
-		| d3[(*s)[3]];
-
-#if BASE64_LITTLE_ENDIAN
-	if (str & UINT32_C(0x80000000)) {
+	if (!pack_dec_loop_32_inner(s, o, d0, d1, d2, d3))
 		return 0;
-	}
-#else
-	if (str & UINT32_C(1)) {
-		return 0;
-	}
-#endif
-	memcpy(*o, &str, sizeof (str));
-
-	*s += 4;
-	*o += 3;
 	*rounds -= 1;
-
 	return 1;
 }
 
@@ -3275,7 +3166,7 @@ base64_stream_encode_plain BASE64_ENC_PARAMS
 		{
 		case 0:
 	/* SIMD loop */
-#if BASE64_WORDSIZE == 32
+#if PACK_WORDSIZE == 32
 	enc_loop_generic_32(&s, &slen, &o, &olen, state->flags);
 #else
 	enc_loop_generic_64(&s, &slen, &o, &olen, state->flags);
@@ -3355,7 +3246,7 @@ base64_stream_decode_plain BASE64_DEC_PARAMS
 		{
 		case 0:
 	/* SIMD loop */
-#if BASE64_WORDSIZE >= 32
+#if PACK_WORDSIZE >= 32
 	dec_loop_generic_32(&s, &slen, &o, &olen, state->flags);
 #endif
 	/* dec_tail.c */
@@ -3461,7 +3352,7 @@ base64_stream_decode_plain BASE64_DEC_PARAMS
 /* ------ AVX2 encoder helpers (with target attribute) ------ */
 
 BASE64_TARGET_AVX2
-static BASE64_FORCE_INLINE __m256i
+static PACK_FORCE_INLINE __m256i
 avx2_enc_reshuffle (const __m256i input)
 {
 	const __m256i in = _mm256_shuffle_epi8(input, _mm256_set_epi8(
@@ -3483,7 +3374,7 @@ avx2_enc_reshuffle (const __m256i input)
 }
 
 BASE64_TARGET_AVX2
-static BASE64_FORCE_INLINE __m256i
+static PACK_FORCE_INLINE __m256i
 avx2_enc_translate (const __m256i in, const __m256i lut)
 {
 	__m256i indices = _mm256_subs_epu8(in, _mm256_set1_epi8(51));
@@ -3494,7 +3385,7 @@ avx2_enc_translate (const __m256i in, const __m256i lut)
 }
 
 BASE64_TARGET_AVX2
-static BASE64_FORCE_INLINE void
+static PACK_FORCE_INLINE void
 enc_loop_avx2_inner_first (const uint8_t **s, uint8_t **o, const __m256i lut)
 {
 	__m256i src = _mm256_loadu_si256((__m256i *) *s);
@@ -3507,7 +3398,7 @@ enc_loop_avx2_inner_first (const uint8_t **s, uint8_t **o, const __m256i lut)
 }
 
 BASE64_TARGET_AVX2
-static BASE64_FORCE_INLINE void
+static PACK_FORCE_INLINE void
 enc_loop_avx2_inner (const uint8_t **s, uint8_t **o, const __m256i lut)
 {
 	__m256i src = _mm256_loadu_si256((__m256i *) *s);
@@ -3576,7 +3467,7 @@ enc_loop_avx2 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int f
 /* ------ AVX2 decoder helpers ------ */
 
 BASE64_TARGET_AVX2
-static BASE64_FORCE_INLINE __m256i
+static PACK_FORCE_INLINE __m256i
 avx2_dec_reshuffle (const __m256i in)
 {
 	const __m256i merge_ab_and_bc = _mm256_maddubs_epi16(in, _mm256_set1_epi32(0x01400140));
@@ -3590,7 +3481,7 @@ avx2_dec_reshuffle (const __m256i in)
 }
 
 BASE64_TARGET_AVX2
-static BASE64_FORCE_INLINE int
+static PACK_FORCE_INLINE int
 dec_loop_avx2_inner (const uint8_t **s, uint8_t **o, size_t *rounds, int flags)
 {
 	const __m256i lut_lo = _mm256_setr_epi8(
@@ -3846,7 +3737,7 @@ static const int8_t avx512_enc_multishift[64] = {
 };
 
 BASE64_TARGET_AVX512
-static BASE64_FORCE_INLINE __m512i
+static PACK_FORCE_INLINE __m512i
 enc_reshuffle_translate (
 	const __m512i input,
 	const __m512i shuffle,
@@ -3859,7 +3750,7 @@ enc_reshuffle_translate (
 }
 
 BASE64_TARGET_AVX512
-static BASE64_FORCE_INLINE void
+static PACK_FORCE_INLINE void
 enc_loop_avx512_inner (const uint8_t **s, uint8_t **o,
 	const __m512i shuffle, const __m512i shifts,
 	const __m512i lookup)
@@ -3976,7 +3867,7 @@ static const int8_t avx512_dec_pack_shuf[64] = {
 };
 
 BASE64_TARGET_AVX512
-static BASE64_FORCE_INLINE __m512i
+static PACK_FORCE_INLINE __m512i
 dec_translate_pack (
 	const __m512i input,
 	const __m512i lookup_0,
@@ -3992,7 +3883,7 @@ dec_translate_pack (
 }
 
 BASE64_TARGET_AVX512
-static BASE64_FORCE_INLINE int
+static PACK_FORCE_INLINE int
 dec_loop_avx512_inner (const uint8_t **s, uint8_t **o, size_t *rounds,
 	const __m512i lookup_0, const __m512i lookup_1,
 	const __m512i pack_shuffle)
@@ -4302,7 +4193,7 @@ codec_choose_x86 (struct codec *mid, struct codec *top)
 
 #include <arm_neon.h>
 
-static BASE64_FORCE_INLINE uint8x16x4_t
+static PACK_FORCE_INLINE uint8x16x4_t
 load_64byte_table (const uint8_t *p)
 {
 	uint8x16x4_t t;
@@ -4411,7 +4302,7 @@ dec_loop_neon64 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int
 	*olen -= rounds * 48;
 }
 
-static BASE64_FORCE_INLINE uint8x16x4_t
+static PACK_FORCE_INLINE uint8x16x4_t
 neon64_enc_reshuffle (const uint8x16x3_t in)
 {
 	uint8x16x4_t out;
@@ -4429,7 +4320,7 @@ neon64_enc_reshuffle (const uint8x16x3_t in)
 	return out;
 }
 
-static BASE64_FORCE_INLINE void
+static PACK_FORCE_INLINE void
 enc_loop_neon64_inner (const uint8_t **s, uint8_t **o, const uint8x16x4_t tbl_enc)
 {
 	uint8x16x3_t src = vld3q_u8(*s);
