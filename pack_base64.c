@@ -4255,7 +4255,7 @@ pack_base64_xgetbv (uint32_t index)
 #define _AVX_512_ENABLED_BY_OS (bit_XMM | bit_YMM | bit_OPMASK | bit_ZMM | bit_HIGH_ZMM)
 
 static void
-codec_choose_x86 (struct codec *codec)
+codec_choose_x86 (struct codec *mid, struct codec *top)
 {
 	unsigned int eax, ebx = 0, ecx = 0, edx;
 	unsigned int max_level;
@@ -4274,27 +4274,25 @@ codec_choose_x86 (struct codec *codec)
 			uint64_t xcr_mask;
 			xcr_mask = pack_base64_xgetbv(_XCR_XFEATURE_ENABLED_MASK);
 			if ((xcr_mask & _XCR_XMM_AND_YMM_STATE_ENABLED_BY_OS) == _XCR_XMM_AND_YMM_STATE_ENABLED_BY_OS) {
-				if (max_level >= 7 && ((xcr_mask & _AVX_512_ENABLED_BY_OS) == _AVX_512_ENABLED_BY_OS)) {
-					__cpuid_count(7, 0, eax, ebx, ecx, edx);
-					if ((ebx & bit_AVX512vl) && (ecx & bit_AVX512vbmi)) {
-						codec->enc = base64_stream_encode_avx512;
-						codec->dec = base64_stream_decode_avx512;
-						return;
-					}
-				}
 				if (max_level >= 7) {
 					__cpuid_count(7, 0, eax, ebx, ecx, edx);
 					if (ebx & bit_AVX2) {
-						codec->enc = base64_stream_encode_avx2;
-						codec->dec = base64_stream_decode_avx2;
-						return;
+						mid->enc = base64_stream_encode_avx2;
+						mid->dec = base64_stream_decode_avx2;
+						/* top defaults to AVX2 too; upgraded below if AVX512 available */
+						top->enc = base64_stream_encode_avx2;
+						top->dec = base64_stream_decode_avx2;
+					}
+					if ((xcr_mask & _AVX_512_ENABLED_BY_OS) == _AVX_512_ENABLED_BY_OS) {
+						if ((ebx & bit_AVX512vl) && (ecx & bit_AVX512vbmi)) {
+							top->enc = base64_stream_encode_avx512;
+							top->dec = base64_stream_decode_avx512;
+						}
 					}
 				}
 			}
 		}
 	}
-	codec->enc = base64_stream_encode_plain;
-	codec->dec = base64_stream_decode_plain;
 }
 
 #endif /* x86 */
@@ -4636,18 +4634,65 @@ codec_choose_aarch64 (struct codec *codec)
 
 /* ======================================================================
  * Codec selection and public API
+ *
+ * Size-tiered dispatch:
+ *   Encoding - based on srclen (raw bytes):
+ *     < 128  bytes  -> scalar (plain C)
+ *     128-1279      -> mid tier (AVX2 on x86, NEON on AArch64)
+ *     >= 1280       -> top tier (AVX512 on x86, else falls back to mid)
+ *
+ *   Decoding - based on decoded output length (srclen * 3 / 4):
+ *     same thresholds as above
  * ====================================================================== */
 
-static void
-codec_choose (struct codec *codec)
+#define CODEC_THRESHOLD_MID  128
+#define CODEC_THRESHOLD_TOP  1280
+
+/*
+ * Three codec tiers, populated at init based on CPU features.
+ * On x86: scalar=plain, mid=AVX2, top=AVX512 (with fallbacks).
+ * On AArch64: scalar=plain, mid=top=NEON64.
+ * On other: all three are plain.
+ */
+static struct codec codec_scalar = { NULL, NULL };
+static struct codec codec_mid    = { NULL, NULL };
+static struct codec codec_top    = { NULL, NULL };
+
+static inline struct codec *
+codec_for_enc_size (size_t srclen)
 {
+	if (srclen < CODEC_THRESHOLD_MID) return &codec_scalar;
+	if (srclen < CODEC_THRESHOLD_TOP) return &codec_mid;
+	return &codec_top;
+}
+
+static inline struct codec *
+codec_for_dec_size (size_t srclen)
+{
+	size_t outlen = srclen * 3 / 4;
+	if (outlen < CODEC_THRESHOLD_MID) return &codec_scalar;
+	if (outlen < CODEC_THRESHOLD_TOP) return &codec_mid;
+	return &codec_top;
+}
+
+static void
+codecs_init (void)
+{
+	/* Scalar is always plain C */
+	codec_scalar.enc = base64_stream_encode_plain;
+	codec_scalar.dec = base64_stream_decode_plain;
+
+	/* Default mid and top to plain; architecture-specific code upgrades them */
+	codec_mid.enc = base64_stream_encode_plain;
+	codec_mid.dec = base64_stream_decode_plain;
+	codec_top.enc = base64_stream_encode_plain;
+	codec_top.dec = base64_stream_decode_plain;
+
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
-	codec_choose_x86(codec);
+	codec_choose_x86(&codec_mid, &codec_top);
 #elif defined(__aarch64__) || defined(_M_ARM64)
-	codec_choose_aarch64(codec);
-#else
-	codec->enc = base64_stream_encode_plain;
-	codec->dec = base64_stream_decode_plain;
+	codec_choose_aarch64(&codec_mid);
+	codec_top = codec_mid;
 #endif
 }
 
@@ -4675,13 +4720,10 @@ base64_stream_encode_final (struct base64_state *state, char *out, size_t *outle
 	*outlen = 0;
 }
 
-/* File-static codec, initialized once */
-static struct codec pack_base64_codec = { NULL, NULL };
-
 void
 pack_base64_init (void)
 {
-	codec_choose(&pack_base64_codec);
+	codecs_init();
 }
 
 size_t
@@ -4696,7 +4738,7 @@ pack_base64_encode (const char *src, size_t srclen, char *out)
 	state.carry = 0;
 	state.flags = 0;
 
-	pack_base64_codec.enc(&state, src, srclen, out, &s);
+	codec_for_enc_size(srclen)->enc(&state, src, srclen, out, &s);
 	base64_stream_encode_final(&state, out + s, &t);
 
 	return s + t;
@@ -4712,7 +4754,7 @@ pack_base64_decode (const char *src, size_t srclen, char *out, size_t *outlen)
 	state.carry = 0;
 	state.flags = 0;
 
-	int ret = pack_base64_codec.dec(&state, src, srclen, out, outlen);
+	int ret = codec_for_dec_size(srclen)->dec(&state, src, srclen, out, outlen);
 
 	/* Check for complete decode */
 	if (!ret || state.bytes != 0) {
@@ -4747,7 +4789,7 @@ pack_base64url_encode (const char *src, size_t srclen, char *out)
 	state.carry = 0;
 	state.flags = BASE64_FLAG_URL_SAFE;
 
-	pack_base64_codec.enc(&state, src, srclen, out, &s);
+	codec_for_enc_size(srclen)->enc(&state, src, srclen, out, &s);
 	base64_stream_encode_final(&state, out + s, &t);
 
 	return s + t;
@@ -4763,7 +4805,7 @@ pack_base64url_decode (const char *src, size_t srclen, char *out, size_t *outlen
 	state.carry = 0;
 	state.flags = BASE64_FLAG_URL_SAFE;
 
-	int ret = pack_base64_codec.dec(&state, src, srclen, out, outlen);
+	int ret = codec_for_dec_size(srclen)->dec(&state, src, srclen, out, outlen);
 
 	/* Check for complete decode */
 	if (!ret || state.bytes != 0) {
