@@ -4613,8 +4613,8 @@ pack_base64_init (void)
 	codecs_init();
 }
 
-size_t
-pack_base64_encode (const char *src, size_t srclen, char *out)
+static size_t
+pack_base64_encode_flags (const char *src, size_t srclen, char *out, int flags)
 {
 	size_t s;
 	size_t t;
@@ -4623,94 +4623,71 @@ pack_base64_encode (const char *src, size_t srclen, char *out)
 	state.eof = 0;
 	state.bytes = 0;
 	state.carry = 0;
-	state.flags = 0;
+	state.flags = flags;
 
 	codec_for_enc_size(srclen)->enc(&state, src, srclen, out, &s);
 	base64_stream_encode_final(&state, out + s, &t);
 
 	return s + t;
+}
+
+static int
+pack_base64_decode_flags (const char *src, size_t srclen, char *out, size_t *outlen, int flags)
+{
+	struct base64_state state;
+
+	state.eof = 0;
+	state.bytes = 0;
+	state.carry = 0;
+	state.flags = flags;
+
+	int ret = codec_for_dec_size(srclen)->dec(&state, src, srclen, out, outlen);
+
+	/* Check for complete decode */
+	if (!ret || state.bytes != 0) {
+		return 0;
+	}
+
+	/* Validate that padding bits are zero (Ruby strict mode requires this) */
+	if (srclen >= 4) {
+		const uint8_t *dec_8bit = (flags & BASE64_FLAG_URL_SAFE)
+			? base64_table_dec_8bit_url : base64_table_dec_8bit;
+		if (src[srclen - 1] == '=' && src[srclen - 2] == '=') {
+			/* Two padding chars: second data char must have 4 low bits zero */
+			uint8_t q = dec_8bit[(unsigned char)src[srclen - 3]];
+			if (q != 255 && (q & 0xf)) return 0;
+		} else if (src[srclen - 1] == '=') {
+			/* One padding char: third data char must have 2 low bits zero */
+			uint8_t q = dec_8bit[(unsigned char)src[srclen - 2]];
+			if (q != 255 && (q & 0x3)) return 0;
+		}
+	}
+
+	return 1;
+}
+
+size_t
+pack_base64_encode (const char *src, size_t srclen, char *out)
+{
+	return pack_base64_encode_flags(src, srclen, out, 0);
 }
 
 int
 pack_base64_decode (const char *src, size_t srclen, char *out, size_t *outlen)
 {
-	struct base64_state state;
-
-	state.eof = 0;
-	state.bytes = 0;
-	state.carry = 0;
-	state.flags = 0;
-
-	int ret = codec_for_dec_size(srclen)->dec(&state, src, srclen, out, outlen);
-
-	/* Check for complete decode */
-	if (!ret || state.bytes != 0) {
-		return 0;
-	}
-
-	/* Validate that padding bits are zero (Ruby strict mode requires this) */
-	if (srclen >= 4) {
-		if (src[srclen - 1] == '=' && src[srclen - 2] == '=') {
-			/* Two padding chars: second data char must have 4 low bits zero */
-			uint8_t q = base64_table_dec_8bit[(unsigned char)src[srclen - 3]];
-			if (q != 255 && (q & 0xf)) return 0;
-		} else if (src[srclen - 1] == '=') {
-			/* One padding char: third data char must have 2 low bits zero */
-			uint8_t q = base64_table_dec_8bit[(unsigned char)src[srclen - 2]];
-			if (q != 255 && (q & 0x3)) return 0;
-		}
-	}
-
-	return 1;
+	return pack_base64_decode_flags(src, srclen, out, outlen, 0);
 }
 
 size_t
 pack_base64url_encode (const char *src, size_t srclen, char *out)
 {
-	size_t s;
-	size_t t;
-	struct base64_state state;
-
-	state.eof = 0;
-	state.bytes = 0;
-	state.carry = 0;
-	state.flags = BASE64_FLAG_URL_SAFE;
-
-	codec_for_enc_size(srclen)->enc(&state, src, srclen, out, &s);
-	base64_stream_encode_final(&state, out + s, &t);
-
-	return s + t;
+	return pack_base64_encode_flags(src, srclen, out, BASE64_FLAG_URL_SAFE);
 }
 
 int
 pack_base64url_decode (const char *src, size_t srclen, char *out, size_t *outlen)
 {
-	struct base64_state state;
-
-	state.eof = 0;
-	state.bytes = 0;
-	state.carry = 0;
-	state.flags = BASE64_FLAG_URL_SAFE;
-
-	int ret = codec_for_dec_size(srclen)->dec(&state, src, srclen, out, outlen);
-
-	/* Check for complete decode */
-	if (!ret || state.bytes != 0) {
-		return 0;
-	}
-
-	/* Validate that padding bits are zero (Ruby strict mode requires this) */
-	if (srclen >= 4) {
-		if (src[srclen - 1] == '=' && src[srclen - 2] == '=') {
-			uint8_t q = base64_table_dec_8bit_url[(unsigned char)src[srclen - 3]];
-			if (q != 255 && (q & 0xf)) return 0;
-		} else if (src[srclen - 1] == '=') {
-			uint8_t q = base64_table_dec_8bit_url[(unsigned char)src[srclen - 2]];
-			if (q != 255 && (q & 0x3)) return 0;
-		}
-	}
-
-	return 1;
+	return pack_base64_decode_flags(src, srclen, out, outlen, BASE64_FLAG_URL_SAFE);
 }
 
 /* ======================================================================
