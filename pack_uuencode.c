@@ -1519,10 +1519,28 @@ pack_uuencode_decode(const char *src, size_t srclen, char *out)
     uint8_t *o = (uint8_t *)out;
     size_t slen = srclen;
 
-    /* 32-bit decode loop: 4 input bytes -> 3 output bytes */
+    /* Unrolled 32-bit decode loop: 4 input bytes -> 3 output bytes */
+    while (slen >= 32) {
+        if (pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3) &&
+            pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3) &&
+            pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3) &&
+            pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3) &&
+            pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3) &&
+            pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3) &&
+            pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3) &&
+            pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3)) {
+            slen -= 32;
+            continue;
+        }
+        break;
+    }
     while (slen >= 8) {
-        if (!pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3)) break;
-        slen -= 4;
+        if (pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3) &&
+            pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3)) {
+            slen -= 8;
+            continue;
+        }
+        break;
     }
     while (slen >= 4) {
         if (!pack_dec_loop_32_inner(&s, &o, uu_dec_32bit_d0, uu_dec_32bit_d1, uu_dec_32bit_d2, uu_dec_32bit_d3)) break;

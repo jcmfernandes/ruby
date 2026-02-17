@@ -1377,20 +1377,27 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
                     if (len > 0) {
                         long nquads = (len + 2) / 3;
                         long enc_bytes = nquads * 4;
-                        char encbuf[84];  /* max 21 quads * 4 */
-                        char decbuf[63];  /* max 63 decoded bytes */
-                        long i;
 
-                        /* Copy valid encoded chars, pad with space (decodes to 0) */
-                        for (i = 0; i < enc_bytes; i++) {
-                            if (s < send && (unsigned char)*s >= ' ' && (unsigned char)*s < 'a')
-                                encbuf[i] = *s++;
-                            else
-                                encbuf[i] = ' ';
+                        /* Count contiguous valid encoded chars */
+                        long avail = 0;
+                        while (avail < enc_bytes && s + avail < send &&
+                               (unsigned char)s[avail] >= ' ' && (unsigned char)s[avail] < 'a') {
+                            avail++;
                         }
 
-                        pack_uuencode_decode(encbuf, (size_t)enc_bytes, decbuf);
-                        memcpy(ptr, decbuf, len);
+                        if (avail == enc_bytes) {
+                            /* Fast path: all encoded chars valid, decode directly */
+                            pack_uuencode_decode(s, (size_t)enc_bytes, ptr);
+                            s += enc_bytes;
+                        }
+                        else {
+                            /* Slow path: pad missing/invalid chars with space (decodes to 0) */
+                            char encbuf[84];  /* max 21 quads * 4 */
+                            memcpy(encbuf, s, avail);
+                            memset(encbuf + avail, ' ', enc_bytes - avail);
+                            s += avail;
+                            pack_uuencode_decode(encbuf, (size_t)enc_bytes, ptr);
+                        }
                         ptr += len;
                     }
 
