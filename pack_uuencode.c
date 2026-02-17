@@ -1465,7 +1465,7 @@ static const uint32_t uu_dec_32bit_d3[256] = {
  * ====================================================================== */
 
 size_t
-pack_uu_encode_line(const char *src, size_t srclen, char *out)
+pack_uuencode_encode(const char *src, size_t srclen, char *out)
 {
     const uint8_t *s = (const uint8_t *)src;
     uint8_t *o = (uint8_t *)out;
@@ -1513,7 +1513,7 @@ pack_uu_encode_line(const char *src, size_t srclen, char *out)
 }
 
 size_t
-pack_uu_decode_raw(const char *src, size_t srclen, char *out)
+pack_uuencode_decode(const char *src, size_t srclen, char *out)
 {
     const uint8_t *s = (const uint8_t *)src;
     uint8_t *o = (uint8_t *)out;

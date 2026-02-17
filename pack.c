@@ -768,7 +768,7 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
             while (plen > 0) {
                 long todo = (plen > len) ? len : plen;
                 char linebuf[88];
-                size_t line_size = pack_uu_encode_line(ptr, (size_t)todo, linebuf);
+                size_t line_size = pack_uuencode_encode(ptr, (size_t)todo, linebuf);
                 rb_str_buf_cat(res, linebuf, (long)line_size);
                 plen -= todo;
                 ptr += todo;
@@ -1389,7 +1389,7 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
                                 encbuf[i] = ' ';
                         }
 
-                        pack_uu_decode_raw(encbuf, (size_t)enc_bytes, decbuf);
+                        pack_uuencode_decode(encbuf, (size_t)enc_bytes, decbuf);
                         memcpy(ptr, decbuf, len);
                         ptr += len;
                     }
