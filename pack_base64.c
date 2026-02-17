@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "internal/bits.h"
 #include "pack_base64.h"
 
 /* ======================================================================
@@ -45,15 +46,10 @@
 #  define BASE64_LITTLE_ENDIAN 0
 #endif
 
-/* Endian conversion */
+/* Endian conversion (swap32/swap64 from internal/bits.h) */
 #if BASE64_LITTLE_ENDIAN
-#  ifdef _MSC_VER
-#    define BASE64_HTOBE32(x)  _byteswap_ulong(x)
-#    define BASE64_HTOBE64(x)  _byteswap_uint64(x)
-#  else
-#    define BASE64_HTOBE32(x)  __builtin_bswap32(x)
-#    define BASE64_HTOBE64(x)  __builtin_bswap64(x)
-#  endif
+#  define BASE64_HTOBE32(x)  swap32(x)
+#  define BASE64_HTOBE64(x)  swap64(x)
 #else
 #  define BASE64_HTOBE32(x)  (x)
 #  define BASE64_HTOBE64(x)  (x)
@@ -78,7 +74,7 @@
 #define BASE64_FLAG_URL_SAFE  (1 << 9)
 
 /* Fallthrough annotation */
-#if __GNUC__ >= 7 || defined(__clang__)
+#if __has_attribute(fallthrough)
 #  define BASE64_FALLTHROUGH  __attribute__((fallthrough));
 #else
 #  define BASE64_FALLTHROUGH
