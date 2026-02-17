@@ -27,6 +27,7 @@
 
 #include "builtin.h"
 #include "pack_base64.h"
+#include "pack_uuencode.h"
 
 /*
  * It is intentional that the condition for natstr is HAVE_TRUE_LONG_LONG
@@ -121,7 +122,6 @@ typedef union {
 
 static const char toofew[] = "too few arguments";
 
-static void encodes(VALUE,const char*,long,int,int);
 static void qpencode(VALUE,VALUE,long);
 
 static unsigned long utf8_to_uv(const char*,long*);
@@ -760,9 +760,16 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
             /* type == 'u': uuencode */
             if (len <= 2) len = 45;
             else if (len > 63) len = 63;
+            {
+                /* max line: 1 len + 84 encoded + 1 newline = 86 */
+                long outsize = (plen / len + 2) * 88;
+                rb_str_modify_expand(res, outsize);
+            }
             while (plen > 0) {
                 long todo = (plen > len) ? len : plen;
-                encodes(res, ptr, todo, type, 1);
+                char linebuf[88];
+                size_t line_size = pack_uu_encode_line(ptr, (size_t)todo, linebuf);
+                rb_str_buf_cat(res, linebuf, (long)line_size);
                 plen -= todo;
                 ptr += todo;
             }
@@ -864,60 +871,6 @@ VALUE
 rb_ec_pack_ary(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
 {
     return pack_pack(ec, ary, fmt, buffer);
-}
-
-static const char uu_table[] =
-"`!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_";
-static const char b64_table[] =
-"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-static void
-encodes(VALUE str, const char *s0, long len, int type, int tail_lf)
-{
-    enum {buff_size = 4096, encoded_unit = 4, input_unit = 3};
-    char buff[buff_size + 1];	/* +1 for tail_lf */
-    long i = 0;
-    const char *const trans = type == 'u' ? uu_table : b64_table;
-    char padding;
-    const unsigned char *s = (const unsigned char *)s0;
-
-    if (type == 'u') {
-        buff[i++] = (char)len + ' ';
-        padding = '`';
-    }
-    else {
-        padding = '=';
-    }
-    while (len >= input_unit) {
-        while (len >= input_unit && buff_size-i >= encoded_unit) {
-            buff[i++] = trans[077 & (*s >> 2)];
-            buff[i++] = trans[077 & (((*s << 4) & 060) | ((s[1] >> 4) & 017))];
-            buff[i++] = trans[077 & (((s[1] << 2) & 074) | ((s[2] >> 6) & 03))];
-            buff[i++] = trans[077 & s[2]];
-            s += input_unit;
-            len -= input_unit;
-        }
-        if (buff_size-i < encoded_unit) {
-            rb_str_buf_cat(str, buff, i);
-            i = 0;
-        }
-    }
-
-    if (len == 2) {
-        buff[i++] = trans[077 & (*s >> 2)];
-        buff[i++] = trans[077 & (((*s << 4) & 060) | ((s[1] >> 4) & 017))];
-        buff[i++] = trans[077 & (((s[1] << 2) & 074) | (('\0' >> 6) & 03))];
-        buff[i++] = padding;
-    }
-    else if (len == 1) {
-        buff[i++] = trans[077 & (*s >> 2)];
-        buff[i++] = trans[077 & (((*s << 4) & 060) | (('\0' >> 4) & 017))];
-        buff[i++] = padding;
-        buff[i++] = padding;
-    }
-    if (tail_lf) buff[i++] = '\n';
-    rb_str_buf_cat(str, buff, i);
-    if ((size_t)i > sizeof(buff)) rb_bug("encodes() buffer overrun");
 }
 
 static const char hex_table[] = "0123456789ABCDEF";
@@ -1413,9 +1366,6 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
                 long total = 0;
 
                 while (s < send && (unsigned char)*s > ' ' && (unsigned char)*s < 'a') {
-                    long a,b,c,d;
-                    char hunk[3];
-
                     len = ((unsigned char)*s++ - ' ') & 077;
 
                     total += len;
@@ -1424,32 +1374,26 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
                         total = RSTRING_LEN(buf);
                     }
 
-                    while (len > 0) {
-                        long mlen = len > 3 ? 3 : len;
+                    if (len > 0) {
+                        long nquads = (len + 2) / 3;
+                        long enc_bytes = nquads * 4;
+                        char encbuf[84];  /* max 21 quads * 4 */
+                        char decbuf[63];  /* max 63 decoded bytes */
+                        long i;
 
-                        if (s < send && (unsigned char)*s >= ' ' && (unsigned char)*s < 'a')
-                            a = ((unsigned char)*s++ - ' ') & 077;
-                        else
-                            a = 0;
-                        if (s < send && (unsigned char)*s >= ' ' && (unsigned char)*s < 'a')
-                            b = ((unsigned char)*s++ - ' ') & 077;
-                        else
-                            b = 0;
-                        if (s < send && (unsigned char)*s >= ' ' && (unsigned char)*s < 'a')
-                            c = ((unsigned char)*s++ - ' ') & 077;
-                        else
-                            c = 0;
-                        if (s < send && (unsigned char)*s >= ' ' && (unsigned char)*s < 'a')
-                            d = ((unsigned char)*s++ - ' ') & 077;
-                        else
-                            d = 0;
-                        hunk[0] = (char)(a << 2 | b >> 4);
-                        hunk[1] = (char)(b << 4 | c >> 2);
-                        hunk[2] = (char)(c << 6 | d);
-                        memcpy(ptr, hunk, mlen);
-                        ptr += mlen;
-                        len -= mlen;
+                        /* Copy valid encoded chars, pad with space (decodes to 0) */
+                        for (i = 0; i < enc_bytes; i++) {
+                            if (s < send && (unsigned char)*s >= ' ' && (unsigned char)*s < 'a')
+                                encbuf[i] = *s++;
+                            else
+                                encbuf[i] = ' ';
+                        }
+
+                        pack_uu_decode_raw(encbuf, (size_t)enc_bytes, decbuf);
+                        memcpy(ptr, decbuf, len);
+                        ptr += len;
                     }
+
                     if (s < send && (unsigned char)*s != '\r' && *s != '\n')
                         s++;	/* possible checksum byte */
                     if (s < send && *s == '\r') s++;
