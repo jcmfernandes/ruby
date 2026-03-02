@@ -4634,22 +4634,35 @@ pack_base64_encode_flags (const char *src, size_t srclen, char *out, int flags)
 static int
 pack_base64_decode_flags (const char *src, size_t srclen, char *out, size_t *outlen, int flags)
 {
+	int loose = flags & PACK_BASE64_LOOSE;
 	struct base64_state state;
 
 	state.eof = 0;
 	state.bytes = 0;
 	state.carry = 0;
-	state.flags = flags;
+	state.flags = flags & ~PACK_BASE64_LOOSE;  /* don't pass caller flags to codec */
 
 	int ret = codec_for_dec_size(srclen)->dec(&state, src, srclen, out, outlen);
 
-	/* Check for complete decode */
-	if (!ret || state.bytes != 0) {
+	if (!ret) {
 		return 0;
 	}
 
-	/* Validate that padding bits are zero (Ruby strict mode requires this) */
-	if (srclen >= 4) {
+	if (state.bytes != 0) {
+		if (!loose) return 0;
+		/*
+		 * Loose mode: accept unpadded input.
+		 * state.bytes == 1: only 6 bits - can't produce a byte, invalid.
+		 * state.bytes == 2: equivalent to XX==, 1 output byte already written.
+		 * state.bytes == 3: equivalent to XXX=, 2 output bytes already written.
+		 * Validate that unused trailing bits in the carry are zero.
+		 */
+		if (state.bytes == 1) return 0;
+		if (state.carry != 0) return 0;
+	}
+
+	/* Validate that padding bits are zero (for padded input) */
+	if (state.bytes == 0 && srclen >= 4) {
 		const uint8_t *dec_8bit = (flags & BASE64_FLAG_URL_SAFE)
 			? base64_table_dec_8bit_url : base64_table_dec_8bit;
 		if (src[srclen - 1] == '=' && src[srclen - 2] == '=') {
@@ -4688,6 +4701,18 @@ int
 pack_base64url_decode (const char *src, size_t srclen, char *out, size_t *outlen)
 {
 	return pack_base64_decode_flags(src, srclen, out, outlen, BASE64_FLAG_URL_SAFE);
+}
+
+int
+pack_base64_decode_f (const char *src, size_t srclen, char *out, size_t *outlen, int flags)
+{
+	return pack_base64_decode_flags(src, srclen, out, outlen, flags);
+}
+
+int
+pack_base64url_decode_f (const char *src, size_t srclen, char *out, size_t *outlen, int flags)
+{
+	return pack_base64_decode_flags(src, srclen, out, outlen, flags | BASE64_FLAG_URL_SAFE);
 }
 
 /* ======================================================================

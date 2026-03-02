@@ -722,6 +722,54 @@ EXPECTED
     assert_raise(ArgumentError) { "AAB=".unpack("m0") }
   end
 
+  def test_pack_unpack_m0_loose
+    # Encoder: m0! is not allowed for packing
+    assert_raise(ArgumentError) { [""].pack("m0!") }
+    assert_raise(ArgumentError) { ["\0"].pack("m0!") }
+    assert_raise(ArgumentError) { ["\0"].pack("m0!>") }
+    assert_raise(ArgumentError) { ["\0"].pack("m!") }
+
+    # Decoder: m0! accepts padded input (same as m0)
+    assert_equal([""], "".unpack("m0!"))
+    assert_equal(["\0"], "AA==".unpack("m0!"))
+    assert_equal(["\0\0"], "AAA=".unpack("m0!"))
+    assert_equal(["\0\0\0"], "AAAA".unpack("m0!"))
+    assert_equal(["\377"], "/w==".unpack("m0!"))
+    assert_equal(["\377\377"], "//8=".unpack("m0!"))
+    assert_equal(["\377\377\377"], "////".unpack("m0!"))
+
+    # Decoder: m0! also accepts unpadded input
+    assert_equal(["\0"], "AA".unpack("m0!"))
+    assert_equal(["\0\0"], "AAA".unpack("m0!"))
+    assert_equal(["\377"], "/w".unpack("m0!"))
+    assert_equal(["\377\377"], "//8".unpack("m0!"))
+
+    # Roundtrip with stripped padding
+    data = "\x01\x02\x03\x04\x05"
+    encoded = [data].pack("m0")
+    assert_equal([data], encoded.delete("=").unpack("m0!"))
+
+    # Invalid: single base64 char (only 6 bits, can't produce a byte)
+    assert_raise(ArgumentError) { "A".unpack("m0!") }
+
+    # Invalid: non-zero padding bits
+    assert_raise(ArgumentError) { "AB".unpack("m0!") }
+    assert_raise(ArgumentError) { "AAB".unpack("m0!") }
+
+    # Invalid: bad characters
+    assert_raise(ArgumentError) { "^".unpack("m0!") }
+    assert_raise(ArgumentError) { "A^".unpack("m0!") }
+    assert_raise(ArgumentError) { "AAA^".unpack("m0!") }
+
+    # URL-safe variant: m0!>
+    assert_equal(["\377"], "_w==".unpack("m0!>"))
+    assert_equal(["\377"], "_w".unpack("m0!>"))
+    assert_equal(["\377\377"], "__8".unpack("m0!>"))
+
+    # ! not allowed with non-zero count
+    assert_raise(ArgumentError) { "AA".unpack("m!") }
+  end
+
   def test_pack_unpack_M
     assert_equal("a b c\td =\n\ne=\n", ["a b c\td \ne"].pack("M"))
     assert_equal(["a b c\td \ne"], "a b c\td =\n\ne=\n".unpack("M"))

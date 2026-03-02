@@ -214,15 +214,14 @@ skip_to_eol(const char *p, const char *pend)
     (ISSPACE(type) || (type == '#' && (p = skip_to_eol(p, pend), 1)))
 
 #ifndef NATINT_PACK
-# define pack_modifiers(p, t, n, e) pack_modifiers(p, t, e)
+# define pack_modifiers(p, t, n, e, l) pack_modifiers(p, t, e, l)
 #endif
 static char *
-pack_modifiers(const char *p, char type, int *natint, int *explicit_endian)
+pack_modifiers(const char *p, char type, int *natint, int *explicit_endian, int *loose)
 {
      while (1) {
          switch (*p) {
            case '_':
-           case '!':
              if (strchr(natstr, type)) {
 #ifdef NATINT_PACK
                  *natint = 1;
@@ -230,7 +229,22 @@ pack_modifiers(const char *p, char type, int *natint, int *explicit_endian)
                  p++;
              }
              else {
-                 rb_raise(rb_eArgError, "'%c' allowed only after types %s", *p, natstr);
+                 rb_raise(rb_eArgError, "'_' allowed only after types %s", natstr);
+             }
+             break;
+           case '!':
+             if (type == 'm') {
+                 *loose = 1;
+                 p++;
+             }
+             else if (strchr(natstr, type)) {
+#ifdef NATINT_PACK
+                 *natint = 1;
+#endif
+                 p++;
+             }
+             else {
+                 rb_raise(rb_eArgError, "'!' allowed only after types %s and 'm'", natstr);
              }
              break;
 
@@ -286,6 +300,7 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
 
     while (p < pend) {
         int explicit_endian = 0;
+        int loose = 0;
         if (RSTRING_END(fmt) != pend) {
             rb_raise(rb_eRuntimeError, "format string modified");
         }
@@ -295,7 +310,7 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
 #endif
 
         if (skip_blank(p, type)) continue;
-        p = pack_modifiers(p, type, &natint, &explicit_endian);
+        p = pack_modifiers(p, type, &natint, &explicit_endian, &loose);
 
         if (*p == '*') {	/* set data length */
             len = strchr("@Xxu", type) ? 0
@@ -315,7 +330,7 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
         }
 
         /* Allow modifiers after count (e.g. m0>) */
-        p = pack_modifiers(p, type, &natint, &explicit_endian);
+        p = pack_modifiers(p, type, &natint, &explicit_endian, &loose);
 
         switch (type) {
           case 'U':
@@ -730,6 +745,9 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
             plen = RSTRING_LEN(from);
 
             if (type == 'm') {
+                if (loose) {
+                    rb_raise(rb_eArgError, "'!' is only allowed for unpacking 'm'");
+                }
                 if (len == 0) {
                     /* Strict mode (m0, m0>) — SIMD path */
                     long outsize = (plen + 2) / 3 * 4;
@@ -1012,6 +1030,7 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
     ary = mode == UNPACK_ARRAY ? rb_ary_new() : Qnil;
     while (p < pend) {
         int explicit_endian = 0;
+        int loose = 0;
         const char type = *p++;
 #ifdef NATINT_PACK
         int natint = 0;		/* native integer */
@@ -1019,7 +1038,7 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
         int star = 0;
 
         if (skip_blank(p, type)) continue;
-        p = pack_modifiers(p, type, &natint, &explicit_endian);
+        p = pack_modifiers(p, type, &natint, &explicit_endian, &loose);
 
         if (p >= pend)
             len = 1;
@@ -1040,7 +1059,7 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
         }
 
         /* Allow modifiers after count (e.g. m0>) */
-        p = pack_modifiers(p, type, &natint, &explicit_endian);
+        p = pack_modifiers(p, type, &natint, &explicit_endian, &loose);
 
         switch (type) {
           case '%':
@@ -1419,9 +1438,10 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
 
                 if (len == 0) {
                     size_t declen;
+                    int flags = loose ? PACK_BASE64_LOOSE : 0;
                     int ok = (explicit_endian == '>')
-                        ? pack_base64url_decode(s, (size_t)(send - s), ptr, &declen)
-                        : pack_base64_decode(s, (size_t)(send - s), ptr, &declen);
+                        ? pack_base64url_decode_f(s, (size_t)(send - s), ptr, &declen, flags)
+                        : pack_base64_decode_f(s, (size_t)(send - s), ptr, &declen, flags);
                     if (!ok) {
                         rb_raise(rb_eArgError, "invalid base64");
                     }
@@ -1432,7 +1452,10 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
                     if (explicit_endian) {
                         rb_raise(rb_eArgError, "'>' is only allowed with count 0 for 'm'");
                     }
-                    /* RFC 2045 lenient decode — scalar path */
+                    if (loose) {
+                        rb_raise(rb_eArgError, "'!' is only allowed with count 0 for 'm'");
+                    }
+                    /* RFC 2045 lenient decode - scalar path */
                     size_t declen = pack_base64_decode_rfc2045(s, (size_t)(send - s), ptr);
                     ptr += declen;
                     s = send;
