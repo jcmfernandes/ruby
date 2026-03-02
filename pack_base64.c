@@ -26,9 +26,6 @@
 #define BASE64_AEOF 1
 #define BASE64_EOF  2
 
-/* URL-safe flag (RFC 4648 §5) */
-#define BASE64_FLAG_URL_SAFE  (1 << 9)
-
 /* Fallthrough annotation */
 #if __has_attribute(fallthrough)
 #  define BASE64_FALLTHROUGH  __attribute__((fallthrough));
@@ -2976,7 +2973,7 @@ enc_loop_generic_64 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen,
 	if (*slen < 8) {
 		return;
 	}
-	const uint16_t *enc_12bit = (flags & BASE64_FLAG_URL_SAFE)
+	const uint16_t *enc_12bit = (flags & PACK_BASE64_URL_SAFE)
 		? base64_table_enc_12bit_url : base64_table_enc_12bit;
 
 	size_t rounds = (*slen - 2) / 6;
@@ -3025,7 +3022,7 @@ enc_loop_generic_32 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen,
 	if (*slen < 4) {
 		return;
 	}
-	const uint16_t *enc_12bit = (flags & BASE64_FLAG_URL_SAFE)
+	const uint16_t *enc_12bit = (flags & PACK_BASE64_URL_SAFE)
 		? base64_table_enc_12bit_url : base64_table_enc_12bit;
 
 	size_t rounds = (*slen - 1) / 3;
@@ -3086,7 +3083,7 @@ dec_loop_generic_32 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen,
 		return;
 	}
 	const uint32_t *d0, *d1, *d2, *d3;
-	if (flags & BASE64_FLAG_URL_SAFE) {
+	if (flags & PACK_BASE64_URL_SAFE) {
 		d0 = base64_table_dec_32bit_url_d0;
 		d1 = base64_table_dec_32bit_url_d1;
 		d2 = base64_table_dec_32bit_url_d2;
@@ -3157,7 +3154,7 @@ base64_stream_encode_plain BASE64_ENC_PARAMS
 	st.bytes = state->bytes;
 	st.carry = state->carry;
 
-	const uint8_t *enc_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *enc_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_enc_6bit_url : base64_table_enc_6bit;
 
 	switch (st.bytes)
@@ -3226,7 +3223,7 @@ base64_stream_decode_plain BASE64_DEC_PARAMS
 	st.bytes = state->bytes;
 	st.carry = state->carry;
 
-	const uint8_t *dec_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *dec_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_dec_8bit_url : base64_table_dec_8bit;
 
 	if (st.eof) {
@@ -3416,7 +3413,7 @@ enc_loop_avx2 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int f
 	if (*slen < 32) {
 		return;
 	}
-	const __m256i lut = (flags & BASE64_FLAG_URL_SAFE)
+	const __m256i lut = (flags & PACK_BASE64_URL_SAFE)
 		? _mm256_setr_epi8(
 			65, 71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -17, 32, 0, 0,
 			65, 71, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -17, 32, 0, 0)
@@ -3507,7 +3504,7 @@ dec_loop_avx2_inner (const uint8_t **s, uint8_t **o, size_t *rounds, int flags)
 	__m256i str = _mm256_loadu_si256((__m256i *) *s);
 
 	/* URL-safe: remap '-' (0x2D) -> '+' (0x2B) and '_' (0x5F) -> '/' (0x2F) */
-	if (flags & BASE64_FLAG_URL_SAFE) {
+	if (flags & PACK_BASE64_URL_SAFE) {
 		const __m256i dash  = _mm256_set1_epi8(0x2D);
 		const __m256i under = _mm256_set1_epi8(0x5F);
 		const __m256i plus  = _mm256_set1_epi8(0x2B);
@@ -3600,7 +3597,7 @@ base64_stream_encode_avx2 BASE64_ENC_PARAMS
 	st.bytes = state->bytes;
 	st.carry = state->carry;
 
-	const uint8_t *enc_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *enc_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_enc_6bit_url : base64_table_enc_6bit;
 
 	switch (st.bytes)
@@ -3651,7 +3648,7 @@ base64_stream_decode_avx2 BASE64_DEC_PARAMS
 	st.bytes = state->bytes;
 	st.carry = state->carry;
 
-	const uint8_t *dec_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *dec_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_dec_8bit_url : base64_table_dec_8bit;
 
 	if (st.eof) {
@@ -3772,7 +3769,7 @@ enc_loop_avx512 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int
 	const __m512i shuffle = _mm512_loadu_si512(avx512_enc_shuffle_input);
 	const __m512i shifts  = _mm512_loadu_si512(avx512_enc_multishift);
 	const __m512i lookup  = _mm512_loadu_si512(
-		(flags & BASE64_FLAG_URL_SAFE) ? base64_table_enc_6bit_url : base64_table_enc_6bit);
+		(flags & PACK_BASE64_URL_SAFE) ? base64_table_enc_6bit_url : base64_table_enc_6bit);
 
 	size_t rounds = (*slen - 24) / 48;
 	*slen -= rounds * 48;
@@ -3910,9 +3907,9 @@ dec_loop_avx512 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int
 		return;
 	}
 	const __m512i lookup_0     = _mm512_loadu_si512(
-		(flags & BASE64_FLAG_URL_SAFE) ? avx512_dec_lut_lo_url : avx512_dec_lut_lo);
+		(flags & PACK_BASE64_URL_SAFE) ? avx512_dec_lut_lo_url : avx512_dec_lut_lo);
 	const __m512i lookup_1     = _mm512_loadu_si512(
-		(flags & BASE64_FLAG_URL_SAFE) ? avx512_dec_lut_hi_url : avx512_dec_lut_hi);
+		(flags & PACK_BASE64_URL_SAFE) ? avx512_dec_lut_hi_url : avx512_dec_lut_hi);
 	const __m512i pack_shuffle = _mm512_loadu_si512(avx512_dec_pack_shuf);
 
 	size_t rounds = (*slen - 24) / 64;
@@ -3971,7 +3968,7 @@ base64_stream_encode_avx512 BASE64_ENC_PARAMS
 	st.bytes = state->bytes;
 	st.carry = state->carry;
 
-	const uint8_t *enc_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *enc_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_enc_6bit_url : base64_table_enc_6bit;
 
 	switch (st.bytes)
@@ -4022,7 +4019,7 @@ base64_stream_decode_avx512 BASE64_DEC_PARAMS
 	st.bytes = state->bytes;
 	st.carry = state->carry;
 
-	const uint8_t *dec_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *dec_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_dec_8bit_url : base64_table_dec_8bit;
 
 	if (st.eof) {
@@ -4246,9 +4243,9 @@ dec_loop_neon64 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int
 	*olen += rounds * 48;
 
 	const uint8x16x4_t tbl_dec1 = load_64byte_table(
-		(flags & BASE64_FLAG_URL_SAFE) ? neon64_dec_lut1_url : neon64_dec_lut1);
+		(flags & PACK_BASE64_URL_SAFE) ? neon64_dec_lut1_url : neon64_dec_lut1);
 	const uint8x16x4_t tbl_dec2 = load_64byte_table(
-		(flags & BASE64_FLAG_URL_SAFE) ? neon64_dec_lut2_url : neon64_dec_lut2);
+		(flags & PACK_BASE64_URL_SAFE) ? neon64_dec_lut2_url : neon64_dec_lut2);
 
 	do {
 		const uint8x16_t offset = vdupq_n_u8(63U);
@@ -4346,7 +4343,7 @@ enc_loop_neon64 (const uint8_t **s, size_t *slen, uint8_t **o, size_t *olen, int
 	*olen += rounds * 64;
 
 	const uint8x16x4_t tbl_enc = load_64byte_table(
-		(flags & BASE64_FLAG_URL_SAFE) ? base64_table_enc_6bit_url : base64_table_enc_6bit);
+		(flags & PACK_BASE64_URL_SAFE) ? base64_table_enc_6bit_url : base64_table_enc_6bit);
 
 	while (rounds > 0) {
 		if (rounds >= 8) {
@@ -4393,7 +4390,7 @@ base64_stream_encode_neon64 BASE64_ENC_PARAMS
 	st.bytes = state->bytes;
 	st.carry = state->carry;
 
-	const uint8_t *enc_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *enc_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_enc_6bit_url : base64_table_enc_6bit;
 
 	switch (st.bytes)
@@ -4444,7 +4441,7 @@ base64_stream_decode_neon64 BASE64_DEC_PARAMS
 	st.bytes = state->bytes;
 	st.carry = state->carry;
 
-	const uint8_t *dec_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *dec_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_dec_8bit_url : base64_table_dec_8bit;
 
 	if (st.eof) {
@@ -4588,7 +4585,7 @@ static void
 base64_stream_encode_final (struct base64_state *state, char *out, size_t *outlen)
 {
 	uint8_t *o = (uint8_t *)out;
-	const uint8_t *enc_table = (state->flags & BASE64_FLAG_URL_SAFE)
+	const uint8_t *enc_table = (state->flags & PACK_BASE64_URL_SAFE)
 		? base64_table_enc_6bit_url : base64_table_enc_6bit;
 
 	if (state->bytes == 1) {
@@ -4613,8 +4610,8 @@ pack_base64_init (void)
 	codecs_init();
 }
 
-static size_t
-pack_base64_encode_flags (const char *src, size_t srclen, char *out, int flags)
+size_t
+pack_base64_encode (const char *src, size_t srclen, char *out, int flags)
 {
 	size_t s;
 	size_t t;
@@ -4631,8 +4628,8 @@ pack_base64_encode_flags (const char *src, size_t srclen, char *out, int flags)
 	return s + t;
 }
 
-static int
-pack_base64_decode_flags (const char *src, size_t srclen, char *out, size_t *outlen, int flags)
+int
+pack_base64_decode (const char *src, size_t srclen, char *out, size_t *outlen, int flags)
 {
 	int loose = flags & PACK_BASE64_LOOSE;
 	struct base64_state state;
@@ -4640,7 +4637,7 @@ pack_base64_decode_flags (const char *src, size_t srclen, char *out, size_t *out
 	state.eof = 0;
 	state.bytes = 0;
 	state.carry = 0;
-	state.flags = flags & ~PACK_BASE64_LOOSE;  /* don't pass caller flags to codec */
+	state.flags = flags;
 
 	int ret = codec_for_dec_size(srclen)->dec(&state, src, srclen, out, outlen);
 
@@ -4663,7 +4660,7 @@ pack_base64_decode_flags (const char *src, size_t srclen, char *out, size_t *out
 
 	/* Validate that padding bits are zero (for padded input) */
 	if (state.bytes == 0 && srclen >= 4) {
-		const uint8_t *dec_8bit = (flags & BASE64_FLAG_URL_SAFE)
+		const uint8_t *dec_8bit = (state.flags & PACK_BASE64_URL_SAFE)
 			? base64_table_dec_8bit_url : base64_table_dec_8bit;
 		if (src[srclen - 1] == '=' && src[srclen - 2] == '=') {
 			/* Two padding chars: second data char must have 4 low bits zero */
@@ -4677,42 +4674,6 @@ pack_base64_decode_flags (const char *src, size_t srclen, char *out, size_t *out
 	}
 
 	return 1;
-}
-
-size_t
-pack_base64_encode (const char *src, size_t srclen, char *out)
-{
-	return pack_base64_encode_flags(src, srclen, out, 0);
-}
-
-int
-pack_base64_decode (const char *src, size_t srclen, char *out, size_t *outlen)
-{
-	return pack_base64_decode_flags(src, srclen, out, outlen, 0);
-}
-
-size_t
-pack_base64url_encode (const char *src, size_t srclen, char *out)
-{
-	return pack_base64_encode_flags(src, srclen, out, BASE64_FLAG_URL_SAFE);
-}
-
-int
-pack_base64url_decode (const char *src, size_t srclen, char *out, size_t *outlen)
-{
-	return pack_base64_decode_flags(src, srclen, out, outlen, BASE64_FLAG_URL_SAFE);
-}
-
-int
-pack_base64_decode_f (const char *src, size_t srclen, char *out, size_t *outlen, int flags)
-{
-	return pack_base64_decode_flags(src, srclen, out, outlen, flags);
-}
-
-int
-pack_base64url_decode_f (const char *src, size_t srclen, char *out, size_t *outlen, int flags)
-{
-	return pack_base64_decode_flags(src, srclen, out, outlen, flags | BASE64_FLAG_URL_SAFE);
 }
 
 /* ======================================================================

@@ -773,11 +773,9 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
                 /* Strict mode (m0, m0>) - SIMD path */
                 long outsize = (plen + 2) / 3 * 4;
                 rb_str_modify_expand(res, outsize);
-                size_t enclen = (explicit_endian == '>')
-                    ? pack_base64url_encode(ptr, (size_t)plen,
-                                            RSTRING_PTR(res) + RSTRING_LEN(res))
-                    : pack_base64_encode(ptr, (size_t)plen,
-                                         RSTRING_PTR(res) + RSTRING_LEN(res));
+                int enc_flags = (explicit_endian == '>') ? PACK_BASE64_URL_SAFE : 0;
+                size_t enclen = pack_base64_encode(ptr, (size_t)plen,
+                                    RSTRING_PTR(res) + RSTRING_LEN(res), enc_flags);
                 rb_str_set_len(res, RSTRING_LEN(res) + (long)enclen);
                 break;
             }
@@ -1441,10 +1439,9 @@ pack_unpack_internal(VALUE str, VALUE fmt, enum unpack_mode mode, long offset)
 
                 if (len == 0) {
                     size_t declen;
-                    int flags = loose ? PACK_BASE64_LOOSE : 0;
-                    int ok = (explicit_endian == '>')
-                        ? pack_base64url_decode_f(s, (size_t)(send - s), ptr, &declen, flags)
-                        : pack_base64_decode_f(s, (size_t)(send - s), ptr, &declen, flags);
+                    int dec_flags = loose ? PACK_BASE64_LOOSE : 0;
+                    if (explicit_endian == '>') dec_flags |= PACK_BASE64_URL_SAFE;
+                    int ok = pack_base64_decode(s, (size_t)(send - s), ptr, &declen, dec_flags);
                     if (!ok) {
                         rb_raise(rb_eArgError, "invalid base64");
                     }
