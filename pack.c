@@ -738,44 +738,11 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
             }
             break;
           case 'u':		/* uuencoded string */
-          case 'm':		/* base64 encoded string */
             from = NEXTFROM;
             StringValue(from);
             ptr = RSTRING_PTR(from);
             plen = RSTRING_LEN(from);
 
-            if (type == 'm') {
-                if (loose) {
-                    rb_raise(rb_eArgError, "'!' is only allowed for unpacking 'm'");
-                }
-                if (len == 0) {
-                    /* Strict mode (m0, m0>) — SIMD path */
-                    long outsize = (plen + 2) / 3 * 4;
-                    rb_str_modify_expand(res, outsize);
-                    size_t enclen = (explicit_endian == '>')
-                        ? pack_base64url_encode(ptr, (size_t)plen,
-                                        RSTRING_PTR(res) + RSTRING_LEN(res))
-                        : pack_base64_encode(ptr, (size_t)plen,
-                                        RSTRING_PTR(res) + RSTRING_LEN(res));
-                    rb_str_set_len(res, RSTRING_LEN(res) + (long)enclen);
-                    break;
-                }
-                if (explicit_endian) {
-                    rb_raise(rb_eArgError, "'>' is only allowed with count 0 for 'm'");
-                }
-                /* RFC 2045 — scalar path with line wrapping */
-                if (len <= 2) len = 45;
-                else len = len / 3 * 3;
-                long outsize = ((plen + 2) / 3 * 4) + (plen / len + 2);
-                rb_str_modify_expand(res, outsize);
-                size_t enclen = pack_base64_encode_rfc2045(
-                    ptr, (size_t)plen,
-                    RSTRING_PTR(res) + RSTRING_LEN(res), (int)len);
-                rb_str_set_len(res, RSTRING_LEN(res) + (long)enclen);
-                break;
-            }
-
-            /* type == 'u': uuencode */
             if (len <= 2) len = 45;
             else if (len > 63) len = 63;
             {
@@ -791,6 +758,42 @@ pack_pack(rb_execution_context_t *ec, VALUE ary, VALUE fmt, VALUE buffer)
                 plen -= todo;
                 ptr += todo;
             }
+            break;
+
+          case 'm':		/* base64 encoded string */
+            from = NEXTFROM;
+            StringValue(from);
+            ptr = RSTRING_PTR(from);
+            plen = RSTRING_LEN(from);
+
+            if (loose) {
+                rb_raise(rb_eArgError, "'!' is only allowed for unpacking 'm'");
+            }
+            if (len == 0) {
+                /* Strict mode (m0, m0>) - SIMD path */
+                long outsize = (plen + 2) / 3 * 4;
+                rb_str_modify_expand(res, outsize);
+                size_t enclen = (explicit_endian == '>')
+                    ? pack_base64url_encode(ptr, (size_t)plen,
+                                            RSTRING_PTR(res) + RSTRING_LEN(res))
+                    : pack_base64_encode(ptr, (size_t)plen,
+                                         RSTRING_PTR(res) + RSTRING_LEN(res));
+                rb_str_set_len(res, RSTRING_LEN(res) + (long)enclen);
+                break;
+            }
+            if (explicit_endian) {
+                rb_raise(rb_eArgError, "'>' is only allowed with count 0 for 'm'");
+            }
+
+            /* RFC 2045 - scalar path with line wrapping */
+            if (len <= 2) len = 45;
+            else len = len / 3 * 3;
+            long outsize = ((plen + 2) / 3 * 4) + (plen / len + 2);
+            rb_str_modify_expand(res, outsize);
+            size_t enclen = pack_base64_encode_rfc2045(
+                ptr, (size_t)plen,
+                RSTRING_PTR(res) + RSTRING_LEN(res), (int)len);
+            rb_str_set_len(res, RSTRING_LEN(res) + (long)enclen);
             break;
 
           case 'M':		/* quoted-printable encoded string */
